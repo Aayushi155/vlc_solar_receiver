@@ -1,0 +1,119 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Define parameters for each panel
+Iph = 0.1  # Photocurrent (A)
+Io = 1e-9  # Reverse saturation current (A)
+Rs = 0.01  # Series resistance (Ohm)
+Rsh = 100  # Shunt resistance (Ohm)
+q = 1.602e-19  # Elementary charge (C)
+k = 1.38e-23  # Boltzmann's constant (J/K)
+T = 298  # Temperature (K)
+a = 1  # Ideality factor
+
+# Define voltage range (only positive to avoid negative currents)
+V = np.linspace(0, 0.6, 100)  # Adjust voltage range as needed (0 to Voc)
+
+# Set irradiance matrix for each panel (uniform irradiance for all panels)
+#irradiance_factors = np.ones((3, 3))  # All panels have irradiance = 1 (uniform for all panels)
+irradiance_factors = np.random.uniform(0.8, 200, (3, 3))
+
+# Define the current equation for a single solar panel
+def pv_current(V, Iph, Io, Rs, Rsh, q, k, T, a):
+    """Calculate the current for a solar panel based on its voltage and irradiance."""
+    I = Iph - Io * (np.exp(q * (V + Iph * Rs) / (a * k * T)) - 1) - V / Rsh
+    return np.maximum(I, 0)  # Avoid negative currents by setting them to zero
+
+# Initialize arrays to store current for each panel
+I_panels = np.zeros((3, 3, len(V)))  # 3x3 grid of panels and voltage points
+
+# Calculate currents for each panel with their respective irradiance
+for i in range(3):
+    for j in range(3):
+        I_panels[i, j, :] = pv_current(V, Iph * irradiance_factors[i, j], Io, Rs, Rsh, q, k, T, a)
+
+# Series Model (All panels in series):
+# The current is the minimum of all panel currents, voltage is the sum of all panel voltages
+series_current = np.min(I_panels, axis=(0, 1))  # Minimum current across all panels
+series_voltage = np.sum(V)  # Sum of all panel voltages
+
+# Parallel Model (All panels in parallel):
+# The voltage is the same for all panels, and the total current is the sum of all panel currents
+parallel_current = np.sum(I_panels, axis=(0, 1))  # Sum of all panel currents
+parallel_voltage = V  # Voltage is the same across all panels
+
+# Mix Model (3 diagonal panels in series, others in parallel):
+# Diagonal panels (1, 5, 9) in series:
+diagonal_currents = np.array([I_panels[0, 0, :], I_panels[1, 1, :], I_panels[2, 2, :]])  # Diagonal panel currents
+diagonal_current = np.min(diagonal_currents, axis=0)  # Minimum current across diagonal panels
+diagonal_voltage = V  # Voltage across the diagonal panels is same as the range
+
+# Sum of voltages for diagonal panels in series
+mix_voltage = np.sum(diagonal_voltage)  # Sum of voltages for series connection
+
+# Parallel current from non-diagonal panels to diagonal panels
+# Panel 1: Series with Panel 5
+# Panel 5: Series with Panel 9
+# Panel 2, 3, 4, 6, 7, 8: Parallel with diagonal panels (1, 5, 9)
+
+# Adding currents from non-diagonal panels to diagonal ones
+panel_current_transfer = np.zeros_like(V)
+
+# Adding currents from non-diagonal panels
+panel_current_transfer += I_panels[0, 1, :]  # Panel 2 -> Panel 1
+panel_current_transfer += I_panels[0, 2, :]  # Panel 3 -> Panel 1
+panel_current_transfer += I_panels[1, 0, :]  # Panel 4 -> Panel 5
+panel_current_transfer += I_panels[1, 2, :]  # Panel 6 -> Panel 5
+panel_current_transfer += I_panels[2, 0, :]  # Panel 7 -> Panel 9
+panel_current_transfer += I_panels[2, 1, :]  # Panel 8 -> Panel 9
+
+# Combine the transferred current with the diagonal current
+mix_current = diagonal_current + panel_current_transfer  # Add transferred current to diagonal
+
+# Calculate the power for Mix Model
+mix_power = mix_voltage * mix_current
+
+# Mask any negative values for current and power (set to 0)
+mix_current = np.maximum(mix_current, 0)
+mix_power = np.maximum(mix_power, 0)
+
+# Plot I-V and P-V curves for all three models
+plt.figure(figsize=(18, 8))
+
+# I-V Curve for Series Model
+plt.subplot(1, 2, 1)
+
+plt.plot(V, series_current, label='Series Model', color='blue', marker='o', markersize=8, markeredgewidth=2, markeredgecolor='black', linewidth=2)
+plt.plot(V, parallel_current, label='Parallel Model', color='orange', marker='s', markersize=8, markeredgewidth=2, markeredgecolor='black', linewidth=2)
+plt.plot(V, mix_current, label='Mix Model', color='green', marker='^', markersize=8, markeredgewidth=2, markeredgecolor='black', linewidth=2)
+plt.xlabel('Voltage (V )', fontsize=22, fontweight='bold')
+plt.ylabel('Current (A)', fontsize=22, fontweight='bold')
+plt.title('I-V Curve', fontsize=22, fontweight='bold')
+plt.grid(True)
+plt.legend(fontsize=22)
+plt.xticks(fontsize=20, fontweight='bold')
+plt.yticks(fontsize=20, fontweight='bold')
+plt.ylim(0, np.max([series_current, parallel_current, mix_current]) + 1)  # Limit the Y-axis to positive values only
+
+# P-V Curve for Series Model
+plt.subplot(1, 2, 2)
+
+plt.plot(V,series_voltage * series_current, label='Series Model', color='blue', marker='o', markersize=8, markeredgewidth=2, markeredgecolor='black', linewidth=2)
+plt.plot(V,parallel_voltage * parallel_current, label='Parallel Model', color='orange', marker='s', markersize=8, markeredgewidth=2, markeredgecolor='black', linewidth=2)
+plt.plot(V, mix_voltage*mix_current, label='Mix Model', color='green', marker='^', markersize=8, markeredgewidth=2, markeredgecolor='black', linewidth=2)
+
+plt.xlabel('Voltage (V)', fontsize=22, fontweight='bold')
+plt.ylabel('Power (W)', fontsize=22, fontweight='bold')
+plt.title('P-V Curve', fontsize=22, fontweight='bold')
+plt.grid(True)
+plt.legend(fontsize=20)
+plt.xticks(fontsize=20, fontweight='bold')
+plt.yticks(fontsize=20, fontweight='bold')
+plt.ylim(0, np.max([series_voltage * series_current, parallel_voltage * parallel_current, mix_voltage * mix_current]) + 1)
+
+plt.tight_layout()
+plt.tight_layout()
+
+# Save the figure as a PNG file with high resolution
+plt.savefig("solar_panel_comparison_scaled.png", dpi=600)
+plt.show()
